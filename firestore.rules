@@ -1,0 +1,166 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function areFriends(uid1, uid2) {
+      return exists(/databases/$(database)/documents/friends/$(uid1 + '_' + uid2)) ||
+             exists(/databases/$(database)/documents/friends/$(uid2 + '_' + uid1)) ||
+             (exists(/databases/$(database)/documents/follows/$(uid1 + '_' + uid2)) &&
+              exists(/databases/$(database)/documents/follows/$(uid2 + '_' + uid1)));
+    }
+
+    // 1. Users Collection
+    match /users/{userId} {
+      // Authenticated users can read profiles for search and user display
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId)
+        && request.resource.data.uid == userId
+        && request.resource.data.username is string
+        && request.resource.data.displayName is string;
+      // Profile updates: user can update own profile (UID is strictly immutable), or counter updates for follows/friends/posts
+      allow update: if isSignedIn() && (
+        (isOwner(userId) && request.resource.data.uid == resource.data.uid) ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'friendsCount',
+          'followersCount',
+          'followingCount',
+          'postsCount',
+          'isOnline',
+          'lastSeen'
+        ])
+      );
+      allow delete: if isOwner(userId);
+    }
+
+    // 2. Unique Usernames registry
+    match /usernames/{username} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    // 3. Follows Collection (Unidirectional & Follow-back relationships)
+    match /follows/{followId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.followerId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.followerId == request.auth.uid;
+    }
+
+    // 4. Friendships Collection (accepted mutual friends)
+    match /friends/{relationId} {
+      allow read: if isSignedIn() && (
+        resource.data.user1Id == request.auth.uid ||
+        resource.data.user2Id == request.auth.uid
+      );
+      allow create: if isSignedIn() && (
+        request.resource.data.user1Id == request.auth.uid ||
+        request.resource.data.user2Id == request.auth.uid
+      );
+      allow delete: if isSignedIn() && (
+        resource.data.user1Id == request.auth.uid ||
+        resource.data.user2Id == request.auth.uid
+      );
+    }
+
+    // 5. Follow & Friend Requests Collection (for private accounts)
+    match /friend_requests/{requestId} {
+      allow read: if isSignedIn() && (
+        resource.data.senderId == request.auth.uid ||
+        resource.data.receiverId == request.auth.uid
+      );
+      allow create: if isSignedIn()
+        && request.resource.data.senderId == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow update: if isSignedIn() && (
+        resource.data.receiverId == request.auth.uid ||
+        resource.data.senderId == request.auth.uid
+      );
+      allow delete: if isSignedIn() && (
+        resource.data.senderId == request.auth.uid ||
+        resource.data.receiverId == request.auth.uid
+      );
+    }
+
+    // 6. One-to-One Conversations
+    match /conversations/{conversationId} {
+      allow read: if isSignedIn() && (
+        request.auth.uid in resource.data.participants
+      );
+      allow create: if isSignedIn() && (
+        request.auth.uid in request.resource.data.participants
+      );
+      allow update: if isSignedIn() && (
+        request.auth.uid in resource.data.participants
+      );
+      allow delete: if isSignedIn() && (
+        request.auth.uid in resource.data.participants
+      );
+
+      // Subcollection: Real-time Messages
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants
+        );
+        allow create: if isSignedIn()
+          && request.resource.data.senderId == request.auth.uid
+          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+        allow update: if isSignedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']);
+        allow delete: if isSignedIn()
+          && resource.data.senderId == request.auth.uid;
+      }
+    }
+
+    // 7. Home Feed & Posts
+    match /posts/{postId} {
+      // Friends-only posts: accessible ONLY to the post author, mutual friends/followed users, or public posts
+      allow read: if isSignedIn() && (
+        resource.data.authorId == request.auth.uid ||
+        resource.data.visibility == 'public' ||
+        areFriends(request.auth.uid, resource.data.authorId)
+      );
+      allow create: if isSignedIn()
+        && request.resource.data.authorId == request.auth.uid;
+      allow update: if isSignedIn() && (
+        resource.data.authorId == request.auth.uid ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'commentsCount'])
+      );
+      allow delete: if isSignedIn() && resource.data.authorId == request.auth.uid;
+
+      // Post comments subcollection
+      match /comments/{commentId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
+        allow delete: if isSignedIn() && (
+          resource.data.authorId == request.auth.uid ||
+          get(/databases/$(database)/documents/posts/$(postId)).data.authorId == request.auth.uid
+        );
+      }
+    }
+
+    // 8. Notifications
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && resource.data.recipientId == request.auth.uid;
+      allow create: if isSignedIn();
+      allow update: if isSignedIn()
+        && resource.data.recipientId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if isSignedIn() && resource.data.recipientId == request.auth.uid;
+    }
+  }
+}

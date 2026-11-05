@@ -1,0 +1,148 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public user profile and account configuration",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "username": { "type": "string", "maxLength": 32, "pattern": "^[a-z0-9_]+$" },
+        "displayName": { "type": "string", "maxLength": 60 },
+        "email": { "type": "string", "maxLength": 128 },
+        "avatarUrl": { "type": "string", "maxLength": 1000 },
+        "bio": { "type": "string", "maxLength": 300 },
+        "statusMessage": { "type": "string", "maxLength": 100 },
+        "isOnline": { "type": "boolean" },
+        "lastSeen": { "type": "number" },
+        "createdAt": { "type": "number" },
+        "followersCount": { "type": "number" },
+        "followingCount": { "type": "number" },
+        "postsCount": { "type": "number" },
+        "isPrivate": { "type": "boolean" },
+        "allowMessagesFrom": { "type": "string", "enum": ["everyone", "followers"] },
+        "showOnlineStatus": { "type": "boolean" }
+      },
+      "required": ["uid", "username", "displayName", "email", "createdAt"]
+    },
+    "FollowRequest": {
+      "title": "FollowRequest",
+      "description": "Follow request for private accounts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "senderId": { "type": "string", "maxLength": 128 },
+        "senderUsername": { "type": "string", "maxLength": 32 },
+        "senderDisplayName": { "type": "string", "maxLength": 60 },
+        "senderAvatar": { "type": "string", "maxLength": 1000 },
+        "receiverId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"] },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "senderId", "receiverId", "status", "createdAt"]
+    },
+    "FollowRelation": {
+      "title": "FollowRelation",
+      "description": "Confirmed follower relationship",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "followerId": { "type": "string", "maxLength": 128 },
+        "followingId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "followerId", "followingId", "createdAt"]
+    },
+    "Conversation": {
+      "title": "Conversation",
+      "description": "One-to-one messaging conversation channel",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "participants": { "type": "array" },
+        "updatedAt": { "type": "number" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "participants", "createdAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Direct message sent within a conversation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "conversationId": { "type": "string", "maxLength": 128 },
+        "senderId": { "type": "string", "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 60 },
+        "senderUsername": { "type": "string", "maxLength": 32 },
+        "senderAvatar": { "type": "string", "maxLength": 1000 },
+        "text": { "type": "string", "maxLength": 4000 },
+        "imageUrl": { "type": "string", "maxLength": 1000 },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "conversationId", "senderId", "timestamp"]
+    },
+    "NotificationItem": {
+      "title": "NotificationItem",
+      "description": "User notification alert",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "recipientId": { "type": "string", "maxLength": 128 },
+        "senderId": { "type": "string", "maxLength": 128 },
+        "senderUsername": { "type": "string", "maxLength": 32 },
+        "senderDisplayName": { "type": "string", "maxLength": 60 },
+        "type": { "type": "string", "enum": ["follow_request", "follow_accepted", "new_follower", "new_message", "post_like"] },
+        "message": { "type": "string", "maxLength": 200 },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "recipientId", "senderId", "type", "createdAt"]
+    },
+    "PostItem": {
+      "title": "PostItem",
+      "description": "Social moment shared by a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "authorId": { "type": "string", "maxLength": 128 },
+        "authorName": { "type": "string", "maxLength": 60 },
+        "authorUsername": { "type": "string", "maxLength": 32 },
+        "content": { "type": "string", "maxLength": 2000 },
+        "imageUrl": { "type": "string", "maxLength": 1000 },
+        "likes": { "type": "array" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "authorId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "UserProfile" },
+      "description": "Public profile documents keyed by Auth UID"
+    },
+    "/follow_requests/{requestId}": {
+      "schema": { "$ref": "FollowRequest" },
+      "description": "Pending and resolved follow requests"
+    },
+    "/followers/{relationId}": {
+      "schema": { "$ref": "FollowRelation" },
+      "description": "Follower and following link records"
+    },
+    "/conversations/{conversationId}": {
+      "schema": { "$ref": "Conversation" },
+      "description": "Direct message conversation headers with participant access list"
+    },
+    "/conversations/{conversationId}/messages/{messageId}": {
+      "schema": { "$ref": "ChatMessage" },
+      "description": "Real-time messages belonging to a conversation"
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "NotificationItem" },
+      "description": "Direct notifications for a recipient user"
+    },
+    "/posts/{postId}": {
+      "schema": { "$ref": "PostItem" },
+      "description": "Social feed moments"
+    }
+  }
+}
